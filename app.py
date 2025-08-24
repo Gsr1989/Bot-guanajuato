@@ -73,10 +73,10 @@ coords_gto_segunda = {
     "fecha": (255.0, 396.0, 10, (0,0,0)),
 }
 
-# ------------ GENERACIÓN PDF GUANAJUATO ------------
-def generar_pdf_guanajuato_completo(folio, datos, fecha_exp, fecha_ven):
+# ------------ GENERACIÓN PDF GUANAJUATO SEPARADOS ------------
+def generar_pdfs_guanajuato_separados(folio, datos, fecha_exp, fecha_ven):
     """
-    Genera AMBAS plantillas de Guanajuato en un solo PDF multi-página
+    Genera DOS archivos PDF separados para las plantillas de Guanajuato
     """
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     
@@ -147,6 +147,11 @@ GUANAJUATO PERMISOS DIGITALES"""
         overlay=True
     )
     
+    # Guardar PRIMERA plantilla
+    salida_primera = os.path.join(OUTPUT_DIR, f"{folio}_guanajuato_principal.pdf")
+    doc_primera.save(salida_primera)
+    doc_primera.close()
+    
     # === SEGUNDA PLANTILLA (guanajuato.pdf) ===
     doc_segunda = fitz.open(PLANTILLA_GUANAJUATO_SEGUNDA)
     pg2 = doc_segunda[0]
@@ -162,26 +167,12 @@ GUANAJUATO PERMISOS DIGITALES"""
                     fontsize=coords_gto_segunda["fecha"][2], 
                     color=coords_gto_segunda["fecha"][3])
     
-    # === COMBINAR AMBAS PLANTILLAS EN UN SOLO PDF ===
-    # Crear documento final
-    doc_final = fitz.open()
-    
-    # Insertar primera página (plantilla principal)
-    doc_final.insert_pdf(doc_primera)
-    
-    # Insertar segunda página (plantilla secundaria)
-    doc_final.insert_pdf(doc_segunda)
-    
-    # Guardar el PDF combinado
-    salida = os.path.join(OUTPUT_DIR, f"{folio}_guanajuato_completo.pdf")
-    doc_final.save(salida)
-    
-    # Cerrar todos los documentos
-    doc_primera.close()
+    # Guardar SEGUNDA plantilla
+    salida_segunda = os.path.join(OUTPUT_DIR, f"{folio}_guanajuato_secundario.pdf")
+    doc_segunda.save(salida_segunda)
     doc_segunda.close()
-    doc_final.close()
     
-    return salida
+    return salida_primera, salida_segunda
 
 # ------------ HANDLERS GUANAJUATO ------------
 @dp.message(Command("start"))
@@ -291,19 +282,29 @@ async def get_nombre(message: types.Message, state: FSMContext):
         f"🔄 PROCESANDO PERMISO DE GUANAJUATO...\n"
         f"Folio: {datos['folio']}\n"
         f"Titular: {nombre}\n\n"
-        "Generando ambas plantillas oficiales..."
+        "Generando ambas plantillas por separado..."
     )
 
     try:
-        # Generar PDF con ambas plantillas
-        pdf_path = generar_pdf_guanajuato_completo(datos['folio'], datos, hoy, fecha_ven)
+        # Generar AMBOS PDFs por separado
+        pdf_principal, pdf_secundario = generar_pdfs_guanajuato_separados(datos['folio'], datos, hoy, fecha_ven)
 
+        # Enviar el primer archivo
         await message.answer_document(
-            FSInputFile(pdf_path),
-            caption=f"📋 PERMISO OFICIAL GUANAJUATO\n"
+            FSInputFile(pdf_principal),
+            caption=f"📋 PERMISO PRINCIPAL GUANAJUATO\n"
                    f"Folio: {datos['folio']}\n"
                    f"Vigencia: 30 días\n"
-                   f"🏛️ Documento con ambas plantillas incluidas"
+                   f"🏛️ Documento principal con QR"
+        )
+
+        # Enviar el segundo archivo
+        await message.answer_document(
+            FSInputFile(pdf_secundario),
+            caption=f"📋 PERMISO SECUNDARIO GUANAJUATO\n"
+                   f"Folio: {datos['folio']}\n"
+                   f"Vigencia: 30 días\n"
+                   f"🏛️ Documento de verificación"
         )
 
         # Guardar en base de datos
@@ -337,14 +338,14 @@ async def get_nombre(message: types.Message, state: FSMContext):
         }).execute()
 
         await message.answer(
-            f"🎯 PERMISO DE GUANAJUATO GENERADO EXITOSAMENTE\n\n"
+            f"🎯 PERMISOS DE GUANAJUATO GENERADOS EXITOSAMENTE\n\n"
             f"📄 Folio: {datos['folio']}\n"
             f"🚗 Vehículo: {datos['marca']} {datos['linea']} {datos['anio']}\n"
             f"📅 Vigencia: 30 días\n"
             f"✅ Estado: ACTIVO\n\n"
-            "Su documento incluye:\n"
-            "• Página 1: Permiso principal con QR\n"
-            "• Página 2: Documento de verificación\n\n"
+            "Sus documentos generados:\n"
+            "• Archivo 1: Permiso principal con QR\n"
+            "• Archivo 2: Documento de verificación\n\n"
             "Para otro trámite, use /permiso nuevamente."
         )
         
