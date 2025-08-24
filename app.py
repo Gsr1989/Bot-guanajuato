@@ -19,6 +19,7 @@ import pandas as pd
 import zipfile
 from pathlib import Path
 import tempfile
+from PIL import Image  # ← ESTO TE FALTABA
 
 # ------------ CONFIG ------------
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
