@@ -120,12 +120,44 @@ def cancelar_timer(user_id: int):
         timers_activos[user_id]["task"].cancel()
         del timers_activos[user_id]
 
-# ------------ FOLIO GUANAJUATO ------------
-folio_counter = {"count": 659}
-def nuevo_folio() -> str:
-    folio = f"{folio_counter['count']}"
-    folio_counter["count"] += 1
+# ------------ FOLIO GUANAJUATO CON PREFIJO 659 PROGRESIVO ------------
+FOLIO_PREFIJO = "659"
+folio_counter = {"siguiente": 1}
+
+def obtener_siguiente_folio():
+    """
+    Retorna el folio como string con prefijo 659 y número progresivo.
+    Ej: 6591, 6592, ..., 659100, etc.
+    """
+    folio_num = folio_counter["siguiente"]
+    folio = f"{FOLIO_PREFIJO}{folio_num}"
+    folio_counter["siguiente"] += 1
     return folio
+
+def inicializar_folio_desde_supabase():
+    """
+    Busca el último folio de GUANAJUATO en Supabase y ajusta el contador.
+    """
+    try:
+        response = supabase.table("folios_registrados") \
+            .select("folio") \
+            .eq("entidad", "guanajuato") \
+            .order("id", desc=True) \
+            .limit(1) \
+            .execute()
+
+        if response.data:
+            ultimo_folio = response.data[0]["folio"]
+            if isinstance(ultimo_folio, str) and ultimo_folio.startswith(FOLIO_PREFIJO):
+                numero = int(ultimo_folio[len(FOLIO_PREFIJO):])
+                folio_counter["siguiente"] = numero + 1
+            else:
+                folio_counter["siguiente"] = 1  # En caso de valores corruptos
+        else:
+            folio_counter["siguiente"] = 1  # No hay ningún folio registrado
+    except Exception as e:
+        print(f"[ERROR] Al inicializar folio GUANAJUATO: {e}")
+        folio_counter["siguiente"] = 1
 
 # ------------ FSM STATES ------------
 class PermisoForm(StatesGroup):
