@@ -14,10 +14,7 @@ from aiogram.types import FSInputFile
 from contextlib import asynccontextmanager, suppress
 import asyncio
 import qrcode
-from io import BytesIO
-import string
-import random
-from contextlib import suppress  # Esta línea falta
+from io import BytesIO  # ← ESTA LÍNEA TE FALTA
 
 # ------------ CONFIG ------------
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
