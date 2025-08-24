@@ -17,6 +17,7 @@ import qrcode
 from io import BytesIO
 import string
 import random
+from contextlib import suppress  # Esta línea falta
 
 # ------------ CONFIG ------------
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
