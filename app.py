@@ -568,7 +568,22 @@ async def acepto_terminos(callback: types.CallbackQuery):
 
 @dp.callback_query(lambda c: c.data == "acepto_terminos")
 async def acepto_terminos(callback: types.CallbackQuery):
-    # Este NO estaba en tu código
+    await callback.answer()
+    await callback.message.edit_text(
+        "✅ **TÉRMINOS ACEPTADOS**\n\n"
+        "🏛️ Bienvenido al Sistema Oficial de Permisos de Guanajuato\n\n"
+        
+        f"🚗 **INICIAR TRÁMITE:** /permiso\n"
+        f"💰 **Costo:** ${PRECIO_PERMISO} pesos\n\n"
+        
+        "📋 **MÉTODOS DE PAGO DISPONIBLES:**\n"
+        "• 🏦 Transferencia bancaria AZTECA\n"
+        "• 🏪 Depósito en OXXO\n\n"
+        
+        "⚡ **¿Listo para tramitar tu permiso?**\n"
+        "Escribe /permiso para comenzar.",
+        parse_mode="Markdown"
+    )
     
 @dp.callback_query(lambda c: c.data == "rechazo_terminos")
 async def rechazo_terminos(callback: types.CallbackQuery):
