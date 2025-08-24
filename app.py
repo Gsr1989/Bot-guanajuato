@@ -566,6 +566,10 @@ async def acepto_terminos(callback: types.CallbackQuery):
         parse_mode="Markdown"
     )
 
+@dp.callback_query(lambda c: c.data == "acepto_terminos")
+async def acepto_terminos(callback: types.CallbackQuery):
+    # Este NO estaba en tu código
+    
 @dp.callback_query(lambda c: c.data == "rechazo_terminos")
 async def rechazo_terminos(callback: types.CallbackQuery):
     await callback.answer()
