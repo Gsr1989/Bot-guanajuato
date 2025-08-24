@@ -9,7 +9,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
 from aiogram.filters import Command
-from aiogram.types import FSInputFile
+from aiogram.types import FSInputFile, ContentType
 from contextlib import asynccontextmanager, suppress
 import asyncio
 import qrcode
@@ -25,6 +25,9 @@ OUTPUT_DIR = "documentos"
 PLANTILLA_GUANAJUATO_PRIMERA = "guanajuato_imagen_fullhd.pdf"
 PLANTILLA_GUANAJUATO_SEGUNDA = "guanajuato.pdf"
 
+# Precio del permiso
+PRECIO_PERMISO = 150  # Cambia por tu precio
+
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # ------------ SUPABASE ------------
@@ -34,6 +37,87 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 bot = Bot(token=BOT_TOKEN)
 storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
+
+# ------------ TIMER MANAGEMENT ------------
+timers_activos = {}  # {user_id: {"task": task, "folio": folio, "start_time": datetime}}
+
+async def eliminar_folio_automatico(user_id: int, folio: str):
+    """Elimina folio automáticamente después del tiempo límite"""
+    try:
+        # Eliminar de base de datos
+        supabase.table("folios_registrados").delete().eq("folio", folio).execute()
+        supabase.table("borradores_registros").delete().eq("folio", folio).execute()
+        
+        # Notificar al usuario
+        await bot.send_message(
+            user_id,
+            f"❌ TIEMPO AGOTADO\n\n"
+            f"El folio {folio} ha sido eliminado por falta de pago.\n"
+            f"Para tramitar un nuevo permiso use /permiso"
+        )
+        
+        # Limpiar timer
+        if user_id in timers_activos:
+            del timers_activos[user_id]
+            
+    except Exception as e:
+        print(f"Error eliminando folio {folio}: {e}")
+
+async def enviar_recordatorio(user_id: int, folio: str, minutos_restantes: int):
+    """Envía recordatorios de pago"""
+    try:
+        await bot.send_message(
+            user_id,
+            f"⏰ RECORDATORIO DE PAGO\n\n"
+            f"Folio: {folio}\n"
+            f"⏱️ Te quedan {minutos_restantes} minutos para pagar\n"
+            f"💰 Precio: ${PRECIO_PERMISO}\n\n"
+            f"Envía tu comprobante de pago (imagen) para validar."
+        )
+    except Exception as e:
+        print(f"Error enviando recordatorio a {user_id}: {e}")
+
+async def iniciar_timer_pago(user_id: int, folio: str):
+    """Inicia el timer de 2 horas con recordatorios"""
+    async def timer_task():
+        start_time = datetime.now()
+        
+        # Recordatorios cada 30 minutos
+        for minutos in [30, 60, 90]:
+            await asyncio.sleep(30 * 60)  # 30 minutos
+            
+            # Verificar si el timer sigue activo
+            if user_id not in timers_activos:
+                return  # Timer cancelado (usuario pagó)
+                
+            minutos_restantes = 120 - minutos
+            await enviar_recordatorio(user_id, folio, minutos_restantes)
+        
+        # Último recordatorio a los 110 minutos (faltan 10)
+        await asyncio.sleep(20 * 60)  # 20 minutos más
+        if user_id in timers_activos:
+            await enviar_recordatorio(user_id, folio, 10)
+        
+        # Esperar 10 minutos finales
+        await asyncio.sleep(10 * 60)
+        
+        # Si llegamos aquí, se acabó el tiempo
+        if user_id in timers_activos:
+            await eliminar_folio_automatico(user_id, folio)
+    
+    # Crear y guardar el task
+    task = asyncio.create_task(timer_task())
+    timers_activos[user_id] = {
+        "task": task,
+        "folio": folio,
+        "start_time": datetime.now()
+    }
+
+def cancelar_timer(user_id: int):
+    """Cancela el timer cuando el usuario paga"""
+    if user_id in timers_activos:
+        timers_activos[user_id]["task"].cancel()
+        del timers_activos[user_id]
 
 # ------------ FOLIO GUANAJUATO ------------
 folio_counter = {"count": 659}
@@ -181,13 +265,17 @@ async def start_cmd(message: types.Message, state: FSMContext):
     await message.answer(
         "🏛️ ¡Órale! Sistema Digital de Permisos GUANAJUATO.\n"
         "El estado más chingón para tramitar tus permisos, compadre.\n\n"
-        "🚗 Usa /permiso para tramitar tu documento oficial de Guanajuato."
+        f"🚗 Usa /permiso para tramitar tu documento oficial (${PRECIO_PERMISO})\n"
+        "💳 Métodos de pago: Transferencia bancaria y OXXO"
     )
 
 @dp.message(Command("permiso"))
 async def permiso_cmd(message: types.Message, state: FSMContext):
+    # Cancelar timer anterior si existe
+    cancelar_timer(message.from_user.id)
+    
     await message.answer(
-        "🚗 Vamos a generar tu permiso de GUANAJUATO.\n"
+        f"🚗 Vamos a generar tu permiso de GUANAJUATO (${PRECIO_PERMISO})\n"
         "Primero escribe la MARCA del vehículo:"
     )
     await state.set_state(PermisoForm.marca)
@@ -307,7 +395,7 @@ async def get_nombre(message: types.Message, state: FSMContext):
                    f"🏛️ Documento de verificación"
         )
 
-        # Guardar en base de datos
+        # Guardar en base de datos con estado PENDIENTE
         supabase.table("folios_registrados").insert({
             "folio": datos["folio"],
             "marca": datos["marca"],
@@ -320,6 +408,9 @@ async def get_nombre(message: types.Message, state: FSMContext):
             "fecha_expedicion": hoy.date().isoformat(),
             "fecha_vencimiento": fecha_ven.date().isoformat(),
             "entidad": "guanajuato",
+            "estado": "PENDIENTE",  # NUEVO: Estado de pago
+            "user_id": message.from_user.id,  # NUEVO: ID del usuario
+            "username": message.from_user.username or "Sin username"  # NUEVO
         }).execute()
 
         # También en la tabla borradores (compatibilidad)
@@ -334,19 +425,33 @@ async def get_nombre(message: types.Message, state: FSMContext):
             "color": datos["color"],
             "fecha_expedicion": hoy.isoformat(),
             "fecha_vencimiento": fecha_ven.isoformat(),
-            "contribuyente": datos["nombre"]
+            "contribuyente": datos["nombre"],
+            "estado": "PENDIENTE",
+            "user_id": message.from_user.id
         }).execute()
 
+        # INICIAR TIMER DE PAGO
+        await iniciar_timer_pago(message.from_user.id, datos['folio'])
+
+        # Mensaje de instrucciones de pago
         await message.answer(
-            f"🎯 PERMISOS DE GUANAJUATO GENERADOS EXITOSAMENTE\n\n"
+            f"💰 INSTRUCCIONES DE PAGO\n\n"
             f"📄 Folio: {datos['folio']}\n"
-            f"🚗 Vehículo: {datos['marca']} {datos['linea']} {datos['anio']}\n"
-            f"📅 Vigencia: 30 días\n"
-            f"✅ Estado: ACTIVO\n\n"
-            "Sus documentos generados:\n"
-            "• Archivo 1: Permiso principal con QR\n"
-            "• Archivo 2: Documento de verificación\n\n"
-            "Para otro trámite, use /permiso nuevamente."
+            f"💵 Cantidad: ${PRECIO_PERMISO}\n"
+            f"⏰ Tiempo límite: 2 horas\n\n"
+            
+            "🏦 TRANSFERENCIA BANCARIA:\n"
+            "• Banco: [TU BANCO]\n"
+            "• Cuenta: [TU CUENTA]\n"
+            "• CLABE: [TU CLABE]\n"
+            "• Concepto: Permiso " + datos['folio'] + "\n\n"
+            
+            "🏪 PAGO EN OXXO:\n"
+            "• Referencia: [TU REFERENCIA]\n"
+            "• Cantidad exacta: $" + str(PRECIO_PERMISO) + "\n\n"
+            
+            f"📸 Una vez que pagues, envía la foto de tu comprobante.\n"
+            f"⚠️ Si no pagas en 2 horas, tu folio {datos['folio']} será eliminado."
         )
         
     except Exception as e:
@@ -358,6 +463,45 @@ async def get_nombre(message: types.Message, state: FSMContext):
         )
     finally:
         await state.clear()
+
+# Handler para recibir comprobantes de pago (imágenes)
+@dp.message(lambda message: message.content_type == ContentType.PHOTO)
+async def recibir_comprobante(message: types.Message):
+    user_id = message.from_user.id
+    
+    # Verificar si tiene timer activo
+    if user_id not in timers_activos:
+        await message.answer(
+            "🤔 No tienes ningún permiso pendiente de pago.\n"
+            "Usa /permiso para generar uno nuevo."
+        )
+        return
+    
+    folio = timers_activos[user_id]["folio"]
+    
+    # Cancelar timer
+    cancelar_timer(user_id)
+    
+    # Actualizar estado en base de datos
+    supabase.table("folios_registrados").update({
+        "estado": "COMPROBANTE_ENVIADO",
+        "fecha_comprobante": datetime.now().isoformat()
+    }).eq("folio", folio).execute()
+    
+    supabase.table("borradores_registros").update({
+        "estado": "COMPROBANTE_ENVIADO",
+        "fecha_comprobante": datetime.now().isoformat()
+    }).eq("folio", folio).execute()
+    
+    await message.answer(
+        f"✅ COMPROBANTE RECIBIDO\n\n"
+        f"📄 Folio: {folio}\n"
+        f"📸 Imagen guardada correctamente\n"
+        f"⏱️ Timer de pago detenido\n\n"
+        f"Su comprobante está siendo verificado.\n"
+        f"Una vez validado el pago, su permiso quedará activo para circular.\n\n"
+        f"Gracias por usar nuestro sistema de Guanajuato."
+    )
 
 @dp.message()
 async def fallback(message: types.Message):
