@@ -15,11 +15,15 @@ import asyncio
 import qrcode
 from io import BytesIO
 import random
-import pandas as pd
 import zipfile
 from pathlib import Path
 import tempfile
-from PIL import Image  # ← ESTO TE FALTABA
+from PIL import Image
+from reportlab.lib.pagesizes import A4
+from reportlab.platypus import SimpleDocTemplate, Table, Paragraph, Image as RLImage, PageBreak, Spacer
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import inch
+from reportlab.lib import colors
 
 # ------------ CONFIG ------------
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
@@ -145,9 +149,9 @@ def cancelar_timer(user_id: int):
         timers_activos[user_id]["task"].cancel()
         del timers_activos[user_id]
 
-# ------------ SISTEMA DE REPORTES ------------
+# ------------ SISTEMA DE REPORTES PDF ------------
 async def generar_reporte_diario():
-    """Genera reporte Excel diario con imágenes"""
+    """Genera reporte PDF diario con folios e imágenes de comprobantes"""
     try:
         cdmx_tz = ZoneInfo("America/Mexico_City")
         hoy_cdmx = datetime.now(cdmx_tz).date()
@@ -170,48 +174,126 @@ async def generar_reporte_diario():
             )
             return
         
-        df = pd.DataFrame(folios_data)
-        columnas_orden = [
-            'folio', 'nombre', 'user_id', 'username', 'marca', 'linea', 
-            'anio', 'numero_serie', 'numero_motor', 'color', 
-            'fecha_expedicion', 'fecha_vencimiento', 'estado', 
-            'fecha_comprobante', 'entidad'
-        ]
-        df = df.reindex(columns=[col for col in columnas_orden if col in df.columns])
+        # Estadísticas
+        total_folios = len(folios_data)
+        con_comprobante = len([f for f in folios_data if f.get('estado') == 'COMPROBANTE_ENVIADO'])
+        pendientes = len([f for f in folios_data if f.get('estado') == 'PENDIENTE'])
+        activados = len([f for f in folios_data if f.get('estado') == 'ACTIVO'])
         
-        if 'fecha_expedicion' in df.columns:
-            df['fecha_expedicion'] = pd.to_datetime(df['fecha_expedicion']).dt.strftime('%d/%m/%Y')
-        if 'fecha_vencimiento' in df.columns:
-            df['fecha_vencimiento'] = pd.to_datetime(df['fecha_vencimiento']).dt.strftime('%d/%m/%Y')
+        ingresos_potenciales = total_folios * PRECIO_PERMISO
+        ingresos_con_comprobante = con_comprobante * PRECIO_PERMISO
+        ingresos_confirmados = activados * PRECIO_PERMISO
         
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx') as tmp_excel:
-            with pd.ExcelWriter(tmp_excel.name, engine='xlsxwriter') as writer:
-                df.to_excel(writer, sheet_name='Folios_Diarios', index=False)
-                
-                workbook = writer.book
-                worksheet = writer.sheets['Folios_Diarios']
-                
-                header_format = workbook.add_format({
-                    'bold': True,
-                    'text_wrap': True,
-                    'valign': 'top',
-                    'fg_color': '#D7E4BC',
-                    'border': 1
-                })
-                
-                for col_num, value in enumerate(df.columns.values):
-                    worksheet.write(0, col_num, value, header_format)
-                    worksheet.set_column(col_num, col_num, len(str(value)) + 2)
+        # Crear PDF con ReportLab
+        pdf_filename = f"reporte_guanajuato_{hoy_cdmx.strftime('%Y%m%d')}.pdf"
+        pdf_path = os.path.join(OUTPUT_DIR, pdf_filename)
+        
+        doc = SimpleDocTemplate(pdf_path, pagesize=A4)
+        elementos = []
+        styles = getSampleStyleSheet()
+        
+        # Título
+        titulo = Paragraph(
+            f"<b>REPORTE DIARIO GUANAJUATO - {hoy_cdmx.strftime('%d/%m/%Y')}</b>", 
+            styles['Title']
+        )
+        elementos.append(titulo)
+        elementos.append(Spacer(1, 20))
+        
+        # Estadísticas
+        stats_text = f"""
+        <b>ESTADÍSTICAS DEL DÍA:</b><br/>
+        • Total permisos generados: {total_folios}<br/>
+        • Pendientes de pago: {pendientes}<br/>
+        • Con comprobante enviado: {con_comprobante}<br/>
+        • Permisos activados: {activados}<br/><br/>
+        
+        <b>ANÁLISIS FINANCIERO:</b><br/>
+        • Ingresos potenciales: ${ingresos_potenciales:,}<br/>
+        • Por validar: ${ingresos_con_comprobante:,}<br/>
+        • Confirmados: ${ingresos_confirmados:,}<br/>
+        • Tasa de conversión: {(con_comprobante/total_folios)*100:.1f}%
+        """
+        
+        elementos.append(Paragraph(stats_text, styles['Normal']))
+        elementos.append(PageBreak())
+        
+        # Por cada folio con comprobante
+        folios_con_comprobante = [f for f in folios_data if f.get('estado') == 'COMPROBANTE_ENVIADO']
+        
+        for folio_data in folios_con_comprobante:
+            folio = folio_data['folio']
             
-            excel_path = tmp_excel.name
+            # Datos del folio
+            datos_texto = f"""
+            <b>FOLIO:</b> {folio}<br/>
+            <b>NOMBRE:</b> {folio_data['nombre']}<br/>
+            <b>VEHÍCULO:</b> {folio_data['marca']} {folio_data['linea']} {folio_data['anio']}<br/>
+            <b>SERIE:</b> {folio_data['numero_serie']}<br/>
+            <b>MOTOR:</b> {folio_data['numero_motor']}<br/>
+            <b>COLOR:</b> {folio_data['color']}<br/>
+            <b>ESTADO:</b> {folio_data['estado']}<br/>
+            <b>USUARIO:</b> @{folio_data.get('username', 'sin_username')}<br/>
+            <b>FECHA:</b> {folio_data['fecha_expedicion']}
+            """
+            
+            # Buscar imagen del comprobante
+            imagen_path = None
+            if os.path.exists(IMAGES_DIR):
+                for archivo in os.listdir(IMAGES_DIR):
+                    if archivo.startswith(f"{folio}_"):
+                        imagen_path = os.path.join(IMAGES_DIR, archivo)
+                        break
+            
+            # Crear tabla con datos e imagen lado a lado
+            if imagen_path and os.path.exists(imagen_path):
+                try:
+                    # Redimensionar imagen para el PDF
+                    img = RLImage(imagen_path, width=2.5*inch, height=3*inch)
+                    
+                    # Tabla con datos e imagen
+                    tabla_data = [
+                        [Paragraph(datos_texto, styles['Normal']), img]
+                    ]
+                    
+                    tabla = Table(tabla_data, colWidths=[4*inch, 3*inch])
+                    tabla.setStyle([
+                        ('VALIGN', (0,0), (-1,-1), 'TOP'),
+                        ('GRID', (0,0), (-1,-1), 1, colors.black),
+                        ('BACKGROUND', (0,0), (0,0), colors.lightgrey)
+                    ])
+                    
+                except Exception as e:
+                    # Si falla la imagen, solo texto
+                    tabla_data = [[Paragraph(datos_texto + f"<br/><b>IMAGEN:</b> Error cargando - {str(e)}", styles['Normal'])]]
+                    tabla = Table(tabla_data, colWidths=[7*inch])
+                    tabla.setStyle([
+                        ('GRID', (0,0), (-1,-1), 1, colors.black),
+                        ('BACKGROUND', (0,0), (-1,-1), colors.lightgrey)
+                    ])
+            else:
+                # Sin imagen
+                tabla_data = [[Paragraph(datos_texto + f"<br/><b>COMPROBANTE:</b> No enviado", styles['Normal'])]]
+                tabla = Table(tabla_data, colWidths=[7*inch])
+                tabla.setStyle([
+                    ('GRID', (0,0), (-1,-1), 1, colors.black),
+                    ('BACKGROUND', (0,0), (-1,-1), colors.lightyellow)
+                ])
+            
+            elementos.append(tabla)
+            elementos.append(Spacer(1, 20))
         
+        # Generar PDF
+        doc.build(elementos)
+        
+        # Crear ZIP con imágenes
         zip_path = None
         imagenes_encontradas = []
         folios_hoy = [str(f['folio']) for f in folios_data]
         
         if os.path.exists(IMAGES_DIR) and os.listdir(IMAGES_DIR):
-            with tempfile.NamedTemporaryFile(delete=False, suffix='.zip') as tmp_zip:
-                zip_path = tmp_zip.name
+            zip_filename = f"comprobantes_guanajuato_{hoy_cdmx.strftime('%Y%m%d')}.zip"
+            zip_path = os.path.join(OUTPUT_DIR, zip_filename)
                 
             with zipfile.ZipFile(zip_path, 'w') as zipf:
                 for archivo in os.listdir(IMAGES_DIR):
@@ -222,15 +304,7 @@ async def generar_reporte_diario():
                             zipf.write(archivo_path, archivo)
                             imagenes_encontradas.append(archivo)
         
-        total_folios = len(folios_data)
-        con_comprobante = len([f for f in folios_data if f.get('estado') == 'COMPROBANTE_ENVIADO'])
-        pendientes = len([f for f in folios_data if f.get('estado') == 'PENDIENTE'])
-        activados = len([f for f in folios_data if f.get('estado') == 'ACTIVO'])
-        
-        ingresos_potenciales = total_folios * PRECIO_PERMISO
-        ingresos_con_comprobante = con_comprobante * PRECIO_PERMISO
-        ingresos_confirmados = activados * PRECIO_PERMISO
-        
+        # Mensaje de estadísticas
         mensaje_reporte = (
             f"📊 REPORTE DIARIO GUANAJUATO - {hoy_cdmx.strftime('%d/%m/%Y')}\n"
             f"🕐 Generado a las {datetime.now(cdmx_tz).strftime('%H:%M:%S')} hrs\n\n"
@@ -253,24 +327,22 @@ async def generar_reporte_diario():
         
         await bot.send_message(ADMIN_USER_ID, mensaje_reporte)
         
+        # Enviar PDF con folios e imágenes
         await bot.send_document(
             ADMIN_USER_ID,
-            FSInputFile(excel_path, filename=f"reporte_folios_guanajuato_{hoy_cdmx.strftime('%Y%m%d')}.xlsx"),
-            caption=f"📊 Reporte Excel - {total_folios} folios del día"
+            FSInputFile(pdf_path, filename=pdf_filename),
+            caption=f"📊 Reporte PDF - {total_folios} folios con imágenes de comprobantes"
         )
         
+        # Enviar ZIP con imágenes separadas
         if zip_path and imagenes_encontradas:
             await bot.send_document(
                 ADMIN_USER_ID,
-                FSInputFile(zip_path, filename=f"comprobantes_guanajuato_{hoy_cdmx.strftime('%Y%m%d')}.zip"),
-                caption=f"📸 {len(imagenes_encontradas)} comprobantes de pago del día"
+                FSInputFile(zip_path, filename=os.path.basename(zip_path)),
+                caption=f"📸 {len(imagenes_encontradas)} comprobantes de pago separados"
             )
         
-        os.unlink(excel_path)
-        if zip_path:
-            os.unlink(zip_path)
-        
-        print(f"✅ Reporte diario generado para {hoy_cdmx}")
+        print(f"✅ Reporte PDF generado para {hoy_cdmx}")
             
     except Exception as e:
         error_msg = f"❌ ERROR generando reporte diario:\n{str(e)}"
@@ -930,75 +1002,12 @@ async def activar_folio(message: types.Message):
     except Exception as e:
         await message.answer(f"❌ Error activando: {str(e)}")
 
-@dp.message(Command("eliminar"))
-async def eliminar_folio(message: types.Message):
-    if not is_admin(message.from_user.id):
-        return
-    
-    try:
-        texto = message.text.strip()
-        if len(texto.split()) < 2:
-            await message.answer("❌ **Uso:** /eliminar [folio]", parse_mode="Markdown")
-            return
-        
-        folio = texto.split()[1].strip()
-        response = supabase.table("folios_registrados").select("*").eq("folio", folio).execute()
-        
-        if not response.data:
-            await message.answer(f"❌ Folio {folio} no encontrado.")
-            return
-        
-        folio_data = response.data[0]
-        numero_serie = folio_data.get('numero_serie', '')
-        
-        # Eliminar de ambas tablas
-        supabase.table("folios_registrados").delete().eq("folio", folio).execute()
-        supabase.table("borradores_registros").delete().eq("folio", folio).execute()
-        
-        # Bloquear serie
-        if numero_serie:
-            try:
-                supabase.table("series_bloqueadas").insert({
-                    "numero_serie": numero_serie,
-                    "fecha_bloqueo": datetime.now().isoformat(),
-                    "motivo": "ELIMINACION_ADMINISTRATIVA",
-                    "folio_original": folio
-                }).execute()
-            except:
-                pass
-        
-        # Cancelar timer
-        for user_id, timer_info in list(timers_activos.items()):
-            if timer_info["folio"] == folio:
-                timer_info["task"].cancel()
-                del timers_activos[user_id]
-                break
-        
-        # Notificar usuario
-        try:
-            await bot.send_message(
-                folio_data['user_id'],
-                f"❌ **PERMISO ELIMINADO POR ADMINISTRACIÓN**\n\n"
-                f"📄 **Folio:** {folio}\n"
-                f"🔒 **Serie/NIV BLOQUEADA:** {numero_serie}\n\n"
-                f"Su permiso ha sido eliminado por decisión administrativa.\n"
-                f"⚠️ Este vehículo NO podrá tramitar permisos futuros.",
-                parse_mode="Markdown"
-            )
-        except:
-            pass
-        
-        await message.answer(f"🗑️ **FOLIO {folio} ELIMINADO Y SERIE BLOQUEADA**", parse_mode="Markdown")
-        
-    except Exception as e:
-        await message.answer(f"❌ Error: {str(e)}")
-
 @dp.message(Command("reporte_hoy"))
 async def reporte_manual(message: types.Message):
     if not is_admin(message.from_user.id):
         return
     
-    await message.answer("🔄 **Generando reporte...**", parse_mode="Markdown")
+    await message.answer("🔄 **Generando reporte PDF...**", parse_mode="Markdown")
     await generar_reporte_diario()
 
 @dp.message(Command("estadisticas"))
@@ -1051,115 +1060,35 @@ async def estadisticas_generales(message: types.Message):
     except Exception as e:
         await message.answer(f"❌ Error: {str(e)}")
 
-@dp.message(Command("timers"))
-async def ver_timers(message: types.Message):
-    if not is_admin(message.from_user.id):
-        return
-    
-    if not timers_activos:
-        await message.answer("⏰ No hay timers activos.")
-        return
-    
-    mensaje = "⏰ **TIMERS ACTIVOS:**\n\n"
-    
-    for user_id, info in timers_activos.items():
-        folio = info["folio"]
-        start_time = info["start_time"]
-        tiempo_transcurrido = datetime.now() - start_time
-        tiempo_restante = timedelta(hours=2) - tiempo_transcurrido
-        
-        if tiempo_restante.total_seconds() > 0:
-            horas = int(tiempo_restante.total_seconds() // 3600)
-            minutos = int((tiempo_restante.total_seconds() % 3600) // 60)
-            tiempo_str = f"{horas}h {minutos}m restantes"
-        else:
-            tiempo_str = "¡VENCIDO!"
-        
-        mensaje += f"• **Folio {folio}** (User: {user_id})\n  {tiempo_str}\n\n"
-    
-    await message.answer(mensaje, parse_mode="Markdown")
-
-@dp.message(Command("buscar"))
-async def buscar_folio(message: types.Message):
-    if not is_admin(message.from_user.id):
-        return
-    
-    try:
-        texto = message.text.strip()
-        if len(texto.split()) < 2:
-            await message.answer("❌ **Uso:** /buscar [folio]", parse_mode="Markdown")
-            return
-        
-        folio = texto.split()[1].strip()
-        response = supabase.table("folios_registrados").select("*").eq("folio", folio).execute()
-        
-        if not response.data:
-            await message.answer(f"❌ Folio {folio} no encontrado.")
-            return
-        
-        f = response.data[0]
-        
-        estado_emoji = {'PENDIENTE': '⏳', 'COMPROBANTE_ENVIADO': '📸', 'ACTIVO': '✅'}
-        estado = f.get('estado', 'DESCONOCIDO')
-        
-        mensaje = (
-            f"🔍 **FOLIO {folio}**\n\n"
-            f"👤 **{f['nombre']}**\n"
-            f"📱 @{f.get('username', 'sin_username')}\n"
-            f"🚗 {f['marca']} {f['linea']} {f['anio']}\n"
-            f"🔢 Serie: {f['numero_serie']}\n"
-            f"🎯 Estado: {estado_emoji.get(estado, '❓')} {estado}"
-        )
-        
-        await message.answer(mensaje, parse_mode="Markdown")
-        
-    except Exception as e:
-        await message.answer(f"❌ Error: {str(e)}")
-
-@dp.message(Command("bloqueadas"))
-async def ver_bloqueadas(message: types.Message):
-    if not is_admin(message.from_user.id):
-        return
-    
-    try:
-        response = supabase.table("series_bloqueadas").select("*").execute()
-        bloqueadas = response.data
-        
-        if not bloqueadas:
-            await message.answer("🔓 No hay series bloqueadas.")
-            return
-        
-        mensaje = f"🚫 **SERIES BLOQUEADAS:** {len(bloqueadas)}\n\n"
-        
-        for b in bloqueadas[-10:]:  # Últimas 10
-            fecha = datetime.fromisoformat(b['fecha_bloqueo']).strftime('%d/%m/%Y')
-            mensaje += f"• {b['numero_serie'][:15]}...\n"
-            mensaje += f"  📅 {fecha} - {b.get('motivo', 'N/A')}\n\n"
-        
-        if len(bloqueadas) > 10:
-            mensaje += f"... y {len(bloqueadas) - 10} más"
-        
-        await message.answer(mensaje, parse_mode="Markdown")
-        
-    except Exception as e:
-        await message.answer(f"❌ Error: {str(e)}")
-
-# ------------ FUNCIÓN PRINCIPAL ------------
-async def main():
-    print("🤖 Iniciando Bot de Permisos Guanajuato...")
+# ------------ FASTAPI SETUP ------------
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await bot.delete_webhook(drop_pending_updates=True)
+    if BASE_URL:
+        await bot.set_webhook(f"{BASE_URL}/webhook", allowed_updates=["message"])
     
     # Iniciar scheduler de reportes
     asyncio.create_task(scheduler_reporte_diario())
+    print("✅ Bot iniciado y scheduler activado para las 20:00 CDMX")
     
-    print("✅ Bot iniciado correctamente")
-    print("📊 Scheduler activado para las 20:00 CDMX")
+    yield
     
-    await dp.start_polling(bot)
+    await bot.session.close()
 
-if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        print("🛑 Bot detenido")
-    except Exception as e:
-        print(f"💥 Error crítico: {e}")
+app = FastAPI(lifespan=lifespan)
+
+@app.post("/webhook")
+async def telegram_webhook(request: Request):
+    data = await request.json()
+    update = types.Update(**data)
+    await dp.feed_webhook_update(bot, update)
+    return {"ok": True}
+
+@app.get("/")
+async def root():
+    return {"message": "Bot Guanajuato funcionando - reportes PDF a las 20:00 CDMX"}
+
+if __name__ == '__main__':
+    import uvicorn
+    port = int(os.getenv("PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port)
