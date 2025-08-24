@@ -22,7 +22,7 @@ SUPABASE_URL = os.getenv("SUPABASE_URL", "https://xsagwqepoljfsogusubw.supabase.
 SUPABASE_KEY = os.getenv("SUPABASE_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhzYWd3cWVwb2xqZnNvZ3VzdWJ3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDM5NjM3NTUsImV4cCI6MjA1OTUzOTc1NX0.NUixULn0m2o49At8j6X58UqbXre2O2_JStqzls_8Gws")
 BASE_URL = os.getenv("BASE_URL", "").rstrip("/")
 OUTPUT_DIR = "documentos"
-PLANTILLA_GUANAJUATO_PRIMERA = "permiso guanajuato.pdf"
+PLANTILLA_GUANAJUATO_PRIMERA = "guanajuato_imagen_fullhd.pdf"
 PLANTILLA_GUANAJUATO_SEGUNDA = "guanajuato.pdf"
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -36,7 +36,7 @@ storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
 
 # ------------ FOLIO GUANAJUATO ------------
-folio_counter = {"count": 859001}
+folio_counter = {"count": 659}
 def nuevo_folio() -> str:
     folio = f"{folio_counter['count']}"
     folio_counter["count"] += 1
