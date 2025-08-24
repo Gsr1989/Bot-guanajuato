@@ -15,6 +15,7 @@ import asyncio
 import qrcode
 from io import BytesIO
 import random
+from PIL import Image
 
 # ------------ CONFIG ------------
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
