@@ -1,4 +1,3 @@
-from flask import Flask, render_template, request, redirect, url_for, flash, session, send_file
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from supabase import create_client, Client
@@ -14,7 +13,8 @@ from aiogram.types import FSInputFile
 from contextlib import asynccontextmanager, suppress
 import asyncio
 import qrcode
-from io import BytesIO  # ← ESTA LÍNEA TE FALTA
+from io import BytesIO
+import random
 
 # ------------ CONFIG ------------
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
@@ -368,131 +368,6 @@ async def fallback(message: types.Message):
     ]
     await message.answer(random.choice(respuestas_random))
 
-# ------------ FLASK INTEGRATION (usando la función del Flask original) ------------
-app = Flask(__name__)
-app.secret_key = 'clave_muy_segura_123456'
-
-def generar_pdf_flask(folio: str, numero_serie: str) -> bool:
-    """Función Flask para generar PDF usando plantilla guanajuato.pdf (SEGUNDA)"""
-    try:
-        plantilla = PLANTILLA_GUANAJUATO_SEGUNDA
-        fecha_texto = datetime.now(tz=ZoneInfo("America/Mexico_City")).strftime("%d/%m/%Y")
-        ruta_pdf = f"static/pdfs/{folio}.pdf"
-        os.makedirs("static/pdfs", exist_ok=True)
-        doc = fitz.open(plantilla)
-        page = doc[0]
-        # Inserta datos en plantilla
-        page.insert_text((255.0, 180.0), numero_serie, fontsize=10, fontname="helv")
-        page.insert_text((255.0, 396.0), fecha_texto, fontsize=10, fontname="helv")
-        doc.save(ruta_pdf)
-        doc.close()
-        return True
-    except Exception as e:
-        print(f"ERROR al generar PDF: {e}")
-        return False
-
-@app.route('/')
-def inicio():
-    return redirect(url_for('login'))
-
-@app.route('/login', methods=['GET', 'POST'])
-def login():
-    if request.method == 'POST':
-        username = request.form['username']
-        password = request.form['password']
-        # Admin hardcodeado
-        if username == 'Serg890105tm3' and password == 'Serg890105tm3':
-            session['admin'] = True
-            return redirect(url_for('admin'))
-        # Usuario Supabase
-        res = supabase.table("verificaciondigitalcdmx") \
-                      .select("*") \
-                      .eq("username", username) \
-                      .eq("password", password).execute()
-        if res.data:
-            session['user_id'] = res.data[0]['id']
-            session['username'] = username
-            return redirect(url_for('registro_usuario'))
-        
-        return render_template('bloqueado.html')
-    return render_template('login.html')
-
-@app.route('/admin')
-def admin():
-    if 'admin' not in session:
-        return redirect(url_for('login'))
-    return render_template('panel.html')
-
-@app.route('/registro_usuario', methods=['GET', 'POST'])
-def registro_usuario():
-    if 'user_id' not in session:
-        return redirect(url_for('login'))
-    uid = session['user_id']
-    if request.method == 'POST':
-        folio = request.form['folio']
-        marca = request.form['marca']
-        linea = request.form['linea']
-        anio = request.form['anio']
-        serie = request.form['serie']
-        motor = request.form['motor']
-        telefono = request.form.get('telefono', '')
-        vigencia = int(request.form['vigencia'])
-        
-        # Verifica duplicado
-        if supabase.table("folios_registrados").select("folio") \
-                   .eq("folio", folio).execute().data:
-            flash('Error: folio ya existe.', 'error')
-            return redirect(url_for('registro_usuario'))
-            
-        # Verifica folios disponibles
-        ud = supabase.table("verificaciondigitalcdmx") \
-                     .select("folios_asignac,folios_usados") \
-                     .eq("id", uid).execute().data[0]
-        if ud['folios_asignac'] - ud['folios_usados'] < 1:
-            flash('Sin folios disponibles.', 'error')
-            return redirect(url_for('registro_usuario'))
-            
-        # Crea registro
-        ahora = datetime.now()
-        supabase.table("folios_registrados").insert({
-            "folio": folio,
-            "marca": marca,
-            "linea": linea,
-            "anio": anio,
-            "numero_serie": serie,
-            "numero_motor": motor,
-            "fecha_expedicion": ahora.isoformat(),
-            "fecha_vencimiento": (ahora + timedelta(days=vigencia)).isoformat(),
-            "entidad": "guanajuato",
-            "numero_telefono": telefono
-        }).execute()
-        
-        supabase.table("verificaciondigitalcdmx").update({
-            "folios_usados": ud['folios_usados'] + 1
-        }).eq("id", uid).execute()
-        
-        # Genera PDF
-        generar_pdf_flask(folio, serie)
-        return render_template('exitoso.html',
-                               folio=folio,
-                               enlace_pdf=url_for('descargar_pdf', folio=folio))
-    
-    # GET → muestra formulario
-    info = supabase.table("verificaciondigitalcdmx") \
-                  .select("folios_asignac,folios_usados") \
-                  .eq("id", uid).execute().data[0]
-    return render_template('registro_usuario.html', folios_info=info)
-
-@app.route('/descargar_pdf/<folio>')
-def descargar_pdf(folio):
-    path = f"static/pdfs/{folio}.pdf"
-    return send_file(path, as_attachment=True)
-
-@app.route('/logout')
-def logout():
-    session.clear()
-    return redirect(url_for('login'))
-
 # ------------ FASTAPI + LIFESPAN ------------
 _keep_task = None
 
@@ -514,15 +389,20 @@ async def lifespan(app: FastAPI):
             await _keep_task
     await bot.session.close()
 
-fastapi_app = FastAPI(lifespan=lifespan)
+app = FastAPI(lifespan=lifespan)
 
-@fastapi_app.post("/webhook")
+@app.post("/webhook")
 async def telegram_webhook(request: Request):
     data = await request.json()
     update = types.Update(**data)
     await dp.feed_webhook_update(bot, update)
     return {"ok": True}
 
+@app.get("/")
+async def root():
+    return {"message": "Bot Guanajuato funcionando correctamente"}
+
 if __name__ == '__main__':
-    # Ejecuta Flask para desarrollo local
-    app.run(debug=True)
+    import uvicorn
+    port = int(os.getenv("PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port)
