@@ -121,48 +121,43 @@ def cancelar_timer(user_id: int):
         del timers_activos[user_id]
 
 # ------------ FOLIO GUANAJUATO CON PREFIJO 323 PROGRESIVO ------------
-FOLIO_PREFIJO = "323"
-folio_counter = {"siguiente": 2}  # Empezar en 323+2 = 3232
+folio_counter = {"siguiente": 3230}  # Empezar desde 3230
 
 def nuevo_folio():
     """
-    Genera nuevo folio con prefijo 323 progresivo.
+    Genera nuevo folio empezando desde 3230 y creciendo infinito.
     Busca el último en Supabase para evitar duplicados.
-    Ej: 3232, 3234, 32349987, 32399999999999999999999
+    Ej: 3230, 3231, 3232, 3233... hasta números gigantes
     """
-    max_intentos = 50
+    max_intentos = 100
     
     for _ in range(max_intentos):
         try:
-            # Buscar el último folio con prefijo 323
+            # Buscar el folio más alto que empiece con 323
             response = supabase.table("folios_registrados") \
                 .select("folio") \
                 .like("folio", "323%") \
-                .order("id", desc=True) \
+                .order("folio", desc=True) \
                 .limit(1) \
                 .execute()
 
             if response.data:
                 ultimo_folio = response.data[0]["folio"]
-                if ultimo_folio.startswith("323"):
-                    # Extraer número después de 323
-                    numero_parte = ultimo_folio[3:]  # Todo después de "323"
-                    try:
-                        ultimo_numero = int(numero_parte)
-                        nuevo_numero = ultimo_numero + 1
-                    except:
-                        # Si no se puede convertir, usar contador interno
-                        nuevo_numero = folio_counter["siguiente"]
-                else:
+                try:
+                    # Convertir todo el folio a número
+                    ultimo_numero = int(ultimo_folio)
+                    nuevo_numero = ultimo_numero + 1
+                except:
+                    # Si no se puede convertir, usar contador
                     nuevo_numero = folio_counter["siguiente"]
             else:
-                # No hay folios, empezar con 2
-                nuevo_numero = 2
+                # No hay folios, empezar con 3230
+                nuevo_numero = 3230
 
-            # Generar nuevo folio
-            nuevo_folio_str = f"323{nuevo_numero}"
+            # El folio ES el número completo (sin prefijo separado)
+            nuevo_folio_str = str(nuevo_numero)
             
-            # Verificar que no existe (por si las moscas)
+            # Verificar que no existe
             verificacion = supabase.table("folios_registrados") \
                 .select("folio") \
                 .eq("folio", nuevo_folio_str) \
@@ -178,7 +173,7 @@ def nuevo_folio():
                 
         except Exception as e:
             print(f"[ERROR] Generando folio 323: {e}")
-            # Fallback: usar timestamp
+            # Fallback: usar timestamp con prefijo 323
             import time
             timestamp = int(time.time())
             return f"323{timestamp}"
@@ -190,32 +185,28 @@ def nuevo_folio():
 
 def inicializar_folio_desde_supabase():
     """
-    Inicializa el contador basado en el último folio 323 en Supabase.
+    Inicializa el contador basado en el último folio que empiece con 323.
     """
     try:
         response = supabase.table("folios_registrados") \
             .select("folio") \
             .like("folio", "323%") \
-            .order("id", desc=True) \
+            .order("folio", desc=True) \
             .limit(1) \
             .execute()
 
         if response.data:
             ultimo_folio = response.data[0]["folio"]
-            if ultimo_folio.startswith("323"):
-                numero_parte = ultimo_folio[3:]
-                try:
-                    ultimo_numero = int(numero_parte)
-                    folio_counter["siguiente"] = ultimo_numero + 1
-                except:
-                    folio_counter["siguiente"] = 2
-            else:
-                folio_counter["siguiente"] = 2
+            try:
+                ultimo_numero = int(ultimo_folio)
+                folio_counter["siguiente"] = ultimo_numero + 1
+            except:
+                folio_counter["siguiente"] = 3230
         else:
-            folio_counter["siguiente"] = 2
+            folio_counter["siguiente"] = 3230
     except Exception as e:
         print(f"[ERROR] Inicializando contador 323: {e}")
-        folio_counter["siguiente"] = 2
+        folio_counter["siguiente"] = 3230
 
 # ------------ FSM STATES ------------
 class PermisoForm(StatesGroup):
