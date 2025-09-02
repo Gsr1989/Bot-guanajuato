@@ -120,44 +120,102 @@ def cancelar_timer(user_id: int):
         timers_activos[user_id]["task"].cancel()
         del timers_activos[user_id]
 
-# ------------ FOLIO GUANAJUATO CON PREFIJO 659 PROGRESIVO ------------
-FOLIO_PREFIJO = "435"
-folio_counter = {"siguiente": 1}
+# ------------ FOLIO GUANAJUATO CON PREFIJO 323 PROGRESIVO ------------
+FOLIO_PREFIJO = "323"
+folio_counter = {"siguiente": 2}  # Empezar en 323+2 = 3232
 
-def obtener_siguiente_folio():
+def nuevo_folio():
     """
-    Retorna el folio como string con prefijo 659 y número progresivo.
-    Ej: 6591, 6592, ..., 659100, etc.
+    Genera nuevo folio con prefijo 323 progresivo.
+    Busca el último en Supabase para evitar duplicados.
+    Ej: 3232, 3234, 32349987, 32399999999999999999999
     """
-    folio_num = folio_counter["siguiente"]
-    folio = f"{FOLIO_PREFIJO}{folio_num}"
-    folio_counter["siguiente"] += 1
-    return folio
+    max_intentos = 50
+    
+    for _ in range(max_intentos):
+        try:
+            # Buscar el último folio con prefijo 323
+            response = supabase.table("folios_registrados") \
+                .select("folio") \
+                .like("folio", "323%") \
+                .order("id", desc=True) \
+                .limit(1) \
+                .execute()
+
+            if response.data:
+                ultimo_folio = response.data[0]["folio"]
+                if ultimo_folio.startswith("323"):
+                    # Extraer número después de 323
+                    numero_parte = ultimo_folio[3:]  # Todo después de "323"
+                    try:
+                        ultimo_numero = int(numero_parte)
+                        nuevo_numero = ultimo_numero + 1
+                    except:
+                        # Si no se puede convertir, usar contador interno
+                        nuevo_numero = folio_counter["siguiente"]
+                else:
+                    nuevo_numero = folio_counter["siguiente"]
+            else:
+                # No hay folios, empezar con 2
+                nuevo_numero = 2
+
+            # Generar nuevo folio
+            nuevo_folio_str = f"323{nuevo_numero}"
+            
+            # Verificar que no existe (por si las moscas)
+            verificacion = supabase.table("folios_registrados") \
+                .select("folio") \
+                .eq("folio", nuevo_folio_str) \
+                .execute()
+                
+            if not verificacion.data:  # No existe, perfecto
+                folio_counter["siguiente"] = nuevo_numero + 1
+                return nuevo_folio_str
+            else:
+                # Si ya existe, incrementar y seguir intentando
+                folio_counter["siguiente"] = nuevo_numero + 1
+                continue
+                
+        except Exception as e:
+            print(f"[ERROR] Generando folio 323: {e}")
+            # Fallback: usar timestamp
+            import time
+            timestamp = int(time.time())
+            return f"323{timestamp}"
+    
+    # Si llegamos aquí, usar timestamp como último recurso
+    import time
+    timestamp = int(time.time())
+    return f"323{timestamp}"
 
 def inicializar_folio_desde_supabase():
     """
-    Busca el último folio de GUANAJUATO en Supabase y ajusta el contador.
+    Inicializa el contador basado en el último folio 323 en Supabase.
     """
     try:
         response = supabase.table("folios_registrados") \
             .select("folio") \
-            .eq("entidad", "guanajuato") \
+            .like("folio", "323%") \
             .order("id", desc=True) \
             .limit(1) \
             .execute()
 
         if response.data:
             ultimo_folio = response.data[0]["folio"]
-            if isinstance(ultimo_folio, str) and ultimo_folio.startswith(FOLIO_PREFIJO):
-                numero = int(ultimo_folio[len(FOLIO_PREFIJO):])
-                folio_counter["siguiente"] = numero + 1
+            if ultimo_folio.startswith("323"):
+                numero_parte = ultimo_folio[3:]
+                try:
+                    ultimo_numero = int(numero_parte)
+                    folio_counter["siguiente"] = ultimo_numero + 1
+                except:
+                    folio_counter["siguiente"] = 2
             else:
-                folio_counter["siguiente"] = 1  # En caso de valores corruptos
+                folio_counter["siguiente"] = 2
         else:
-            folio_counter["siguiente"] = 1  # No hay ningún folio registrado
+            folio_counter["siguiente"] = 2
     except Exception as e:
-        print(f"[ERROR] Al inicializar folio GUANAJUATO: {e}")
-        folio_counter["siguiente"] = 1
+        print(f"[ERROR] Inicializando contador 323: {e}")
+        folio_counter["siguiente"] = 2
 
 # ------------ FSM STATES ------------
 class PermisoForm(StatesGroup):
@@ -556,6 +614,9 @@ async def keep_alive():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _keep_task
+    # Inicializar contador de folios 323 al arrancar
+    inicializar_folio_desde_supabase()
+    
     await bot.delete_webhook(drop_pending_updates=True)
     if BASE_URL:
         await bot.set_webhook(f"{BASE_URL}/webhook", allowed_updates=["message"])
@@ -581,6 +642,9 @@ async def root():
     return {"message": "Bot Guanajuato funcionando correctamente"}
 
 if __name__ == '__main__':
+    # Inicializar contador de folios 323 al arrancar
+    inicializar_folio_desde_supabase()
+    
     import uvicorn
     port = int(os.getenv("PORT", 8000))
     uvicorn.run(app, host="0.0.0.0", port=port)
