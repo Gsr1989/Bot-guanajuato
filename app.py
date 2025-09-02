@@ -121,7 +121,7 @@ def cancelar_timer(user_id: int):
         del timers_activos[user_id]
 
 # ------------ FOLIO GUANAJUATO CON PREFIJO 659 PROGRESIVO ------------
-FOLIO_PREFIJO = "659"
+FOLIO_PREFIJO = "435"
 folio_counter = {"siguiente": 1}
 
 def obtener_siguiente_folio():
