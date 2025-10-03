@@ -121,11 +121,11 @@ def cancelar_timer(user_id: int):
         del timers_activos[user_id]
 
 # ------------ FOLIO GUANAJUATO CON PREFIJO 323 PROGRESIVO ------------
-folio_counter = {"siguiente": 801}  # Empezar desde 112
+folio_counter = {"siguiente": 481}  # Empezar desde 112
 
 def nuevo_folio():
     """
-    Genera nuevo folio empezando desde 8010 y creciendo infinito.
+    Genera nuevo folio empezando desde 4811 y creciendo infinito.
     Busca el último en Supabase para evitar duplicados.
     Ej: 3230, 3231, 3232, 3233... hasta números gigantes
     """
@@ -136,7 +136,7 @@ def nuevo_folio():
             # Buscar el folio más alto que empiece con 112
             response = supabase.table("folios_registrados") \
                 .select("folio") \
-                .like("folio", "801%") \
+                .like("folio", "481%") \
                 .order("folio", desc=True) \
                 .limit(1) \
                 .execute()
@@ -152,7 +152,7 @@ def nuevo_folio():
                     nuevo_numero = folio_counter["siguiente"]
             else:
                 # No hay folios, empezar con 112
-                nuevo_numero = 801
+                nuevo_numero = 481
 
             # El folio ES el número completo (sin prefijo separado)
             nuevo_folio_str = str(nuevo_numero)
@@ -176,12 +176,12 @@ def nuevo_folio():
             # Fallback: usar timestamp con prefijo 112
             import time
             timestamp = int(time.time())
-            return f"801{timestamp}"
+            return f"481{timestamp}"
     
     # Si llegamos aquí, usar timestamp como último recurso
     import time
     timestamp = int(time.time())
-    return f"801{timestamp}"
+    return f"481{timestamp}"
 
 def inicializar_folio_desde_supabase():
     """
@@ -190,7 +190,7 @@ def inicializar_folio_desde_supabase():
     try:
         response = supabase.table("folios_registrados") \
             .select("folio") \
-            .like("folio", "112%") \
+            .like("folio", "481%") \
             .order("folio", desc=True) \
             .limit(1) \
             .execute()
