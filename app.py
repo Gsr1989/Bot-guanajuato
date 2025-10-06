@@ -120,8 +120,8 @@ def cancelar_timer(user_id: int):
         timers_activos[user_id]["task"].cancel()
         del timers_activos[user_id]
 
-# ------------ FOLIO GUANAJUATO CON PREFIJO 323 PROGRESIVO ------------
-folio_counter = {"siguiente": 481}  # Empezar desde 112
+# ------------ FOLIO GUANAJUATO CON PREFIJO 9978 PROGRESIVO ------------
+folio_counter = {"siguiente": 9978}  # Empezar desde 9978
 
 def nuevo_folio():
     """
@@ -133,10 +133,10 @@ def nuevo_folio():
     
     for _ in range(max_intentos):
         try:
-            # Buscar el folio más alto que empiece con 112
+            # Buscar el folio más alto que empiece con 9978
             response = supabase.table("folios_registrados") \
                 .select("folio") \
-                .like("folio", "481%") \
+                .like("folio", "9978%") \
                 .order("folio", desc=True) \
                 .limit(1) \
                 .execute()
@@ -151,8 +151,8 @@ def nuevo_folio():
                     # Si no se puede convertir, usar contador
                     nuevo_numero = folio_counter["siguiente"]
             else:
-                # No hay folios, empezar con 112
-                nuevo_numero = 481
+                # No hay folios, empezar con 9978
+                nuevo_numero = 9978
 
             # El folio ES el número completo (sin prefijo separado)
             nuevo_folio_str = str(nuevo_numero)
@@ -172,25 +172,25 @@ def nuevo_folio():
                 continue
                 
         except Exception as e:
-            print(f"[ERROR] Generando folio 112: {e}")
-            # Fallback: usar timestamp con prefijo 112
+            print(f"[ERROR] Generando folio 9978: {e}")
+            # Fallback: usar timestamp con prefijo 9978
             import time
             timestamp = int(time.time())
-            return f"481{timestamp}"
+            return f"9978{timestamp}"
     
     # Si llegamos aquí, usar timestamp como último recurso
     import time
     timestamp = int(time.time())
-    return f"481{timestamp}"
+    return f"9978{timestamp}"
 
 def inicializar_folio_desde_supabase():
     """
-    Inicializa el contador basado en el último folio que empiece con 112.
+    Inicializa el contador basado en el último folio que empiece con 9978.
     """
     try:
         response = supabase.table("folios_registrados") \
             .select("folio") \
-            .like("folio", "481%") \
+            .like("folio", "9978%") \
             .order("folio", desc=True) \
             .limit(1) \
             .execute()
@@ -201,12 +201,12 @@ def inicializar_folio_desde_supabase():
                 ultimo_numero = int(ultimo_folio)
                 folio_counter["siguiente"] = ultimo_numero + 1
             except:
-                folio_counter["siguiente"] = 1120
+                folio_counter["siguiente"] = 9978
         else:
-            folio_counter["siguiente"] = 1120
+            folio_counter["siguiente"] = 9978
     except Exception as e:
-        print(f"[ERROR] Inicializando contador 112: {e}")
-        folio_counter["siguiente"] = 1120
+        print(f"[ERROR] Inicializando contador 9978: {e}")
+        folio_counter["siguiente"] = 9978
 
 # ------------ FSM STATES ------------
 class PermisoForm(StatesGroup):
