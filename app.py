@@ -25,9 +25,8 @@ BASE_URL = os.getenv("BASE_URL", "").rstrip("/")
 OUTPUT_DIR = "documentos"
 PLANTILLA_GUANAJUATO_PRIMERA = "guanajuato_imagen_fullhd.pdf"
 PLANTILLA_GUANAJUATO_SEGUNDA = "guanajuato.pdf"
-ADMIN_PASSWORD = "sero"  # Palabra clave para detener timers
+ADMIN_PASSWORD = "sero"
 
-# Precio del permiso
 PRECIO_PERMISO = 150
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -41,16 +40,14 @@ storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
 
 # ------------ TIMER MANAGEMENT (INDEPENDIENTES) ------------
-timers_activos = {}  # {folio: {"task": task, "user_id": user_id, "start_time": datetime}}
+timers_activos = {}
 
 async def eliminar_folio_automatico(user_id: int, folio: str):
     """Elimina folio automáticamente después del tiempo límite"""
     try:
-        # Eliminar de base de datos
         supabase.table("folios_registrados").delete().eq("folio", folio).execute()
         supabase.table("borradores_registros").delete().eq("folio", folio).execute()
         
-        # Notificar al usuario
         await bot.send_message(
             user_id,
             f"❌ TIEMPO AGOTADO\n\n"
@@ -58,7 +55,6 @@ async def eliminar_folio_automatico(user_id: int, folio: str):
             f"Para tramitar un nuevo permiso use /permiso"
         )
         
-        # Limpiar timer
         if folio in timers_activos:
             del timers_activos[folio]
             
@@ -86,36 +82,33 @@ async def iniciar_timer_pago(user_id: int, folio: str):
         start_time = datetime.now()
         
         # Recordatorio a las 12 horas
-        await asyncio.sleep(12 * 60 * 60)  # 12 horas
+        await asyncio.sleep(12 * 60 * 60)
         
-        # Verificar si el timer sigue activo
         if folio not in timers_activos:
-            return  # Timer cancelado (usuario pagó o admin lo detuvo)
+            return
             
         await enviar_recordatorio(user_id, folio, 12)
         
         # Recordatorio a las 20 horas (faltan 4)
-        await asyncio.sleep(8 * 60 * 60)  # 8 horas más
+        await asyncio.sleep(8 * 60 * 60)
         if folio not in timers_activos:
             return
             
         await enviar_recordatorio(user_id, folio, 4)
         
         # Recordatorio a las 23 horas (falta 1)
-        await asyncio.sleep(3 * 60 * 60)  # 3 horas más
+        await asyncio.sleep(3 * 60 * 60)
         if folio not in timers_activos:
             return
             
         await enviar_recordatorio(user_id, folio, 1)
         
         # Esperar la última hora
-        await asyncio.sleep(1 * 60 * 60)  # 1 hora final
+        await asyncio.sleep(1 * 60 * 60)
         
-        # Si llegamos aquí, se acabó el tiempo
         if folio in timers_activos:
             await eliminar_folio_automatico(user_id, folio)
     
-    # Crear y guardar el task (INDEXADO POR FOLIO, NO POR USER_ID)
     task = asyncio.create_task(timer_task())
     timers_activos[folio] = {
         "task": task,
@@ -131,39 +124,40 @@ def cancelar_timer(folio: str):
         del timers_activos[folio]
         print(f"[TIMER] Cancelado folio {folio}. Restantes activos: {len(timers_activos)}")
 
-# ------------ FOLIO GUANAJUATO CON PREFIJO 9978 PROGRESIVO ------------
+# ------------ FOLIO SIMPLE: 9978, 9979, 9980... ------------
 def nuevo_folio():
     """
-    Genera nuevo folio empezando desde 9978 y creciendo.
-    Si encuentra duplicado, intenta el siguiente hasta encontrar uno libre.
+    Genera folios simples: 9978, 9979, 9980, 9981...
+    Busca el último en Supabase y suma 1.
+    Si hay duplicado, sigue intentando hasta encontrar uno libre.
     """
-    max_intentos = 1000  # Aumentado para más seguridad
+    max_intentos = 1000
     
     for intento in range(max_intentos):
         try:
-            # Buscar el folio más alto que empiece con 9978
+            # Buscar el folio MÁS ALTO numéricamente
             response = supabase.table("folios_registrados") \
                 .select("folio") \
-                .like("folio", "9978%") \
-                .order("folio", desc=True) \
-                .limit(1) \
                 .execute()
 
             if response.data:
-                ultimo_folio = response.data[0]["folio"]
-                try:
-                    # Convertir todo el folio a número y sumar
-                    ultimo_numero = int(ultimo_folio)
-                    nuevo_numero = ultimo_numero + 1 + intento  # Incrementar según intentos
-                except:
-                    # Si falla, usar timestamp
-                    import time
-                    nuevo_numero = int(f"9978{int(time.time())}")
+                # Convertir todos los folios a números y obtener el máximo
+                folios_numericos = []
+                for item in response.data:
+                    try:
+                        folios_numericos.append(int(item["folio"]))
+                    except:
+                        pass
+                
+                if folios_numericos:
+                    ultimo_numero = max(folios_numericos)
+                    nuevo_numero = ultimo_numero + 1 + intento
+                else:
+                    nuevo_numero = 9978 + intento
             else:
                 # No hay folios, empezar con 9978
                 nuevo_numero = 9978 + intento
 
-            # El folio ES el número completo
             nuevo_folio_str = str(nuevo_numero)
             
             # Verificar que no existe
@@ -172,24 +166,23 @@ def nuevo_folio():
                 .eq("folio", nuevo_folio_str) \
                 .execute()
                 
-            if not verificacion.data:  # No existe, perfecto
+            if not verificacion.data:
                 print(f"[FOLIO] Generado: {nuevo_folio_str} (intento {intento + 1})")
                 return nuevo_folio_str
             else:
-                # Ya existe, siguiente iteración intentará +1
                 print(f"[FOLIO] {nuevo_folio_str} duplicado, intentando siguiente...")
                 continue
                 
         except Exception as e:
             print(f"[ERROR] Generando folio: {e}")
-            # Fallback: usar timestamp con prefijo
-            import time
-            return f"9978{int(time.time())}"
+            # Fallback simple
+            import random
+            return str(9978 + random.randint(0, 9999))
     
-    # Si llegamos aquí después de 1000 intentos, usar timestamp
-    import time
-    folio_fallback = f"9978{int(time.time())}"
-    print(f"[FOLIO] FALLBACK después de {max_intentos} intentos: {folio_fallback}")
+    # Fallback si se agotan intentos
+    import random
+    folio_fallback = str(9978 + random.randint(0, 9999))
+    print(f"[FOLIO] FALLBACK: {folio_fallback}")
     return folio_fallback
 
 # ------------ FSM STATES ------------
@@ -600,7 +593,7 @@ async def admin_detener_timer(message: types.Message):
             f"📋 TIMERS ACTIVOS: {len(timers_activos)}\n\n"
             f"Para detener un timer específico:\n"
             f"{ADMIN_PASSWORD}[FOLIO]\n\n"
-            f"Ejemplo: {ADMIN_PASSWORD}9978001"
+            f"Ejemplo: {ADMIN_PASSWORD}9978"
         )
 
 @dp.message()
