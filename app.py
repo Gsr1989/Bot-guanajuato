@@ -314,9 +314,10 @@ coords_qr_dinamico = {
 
 # ------------ GENERACIÓN DE QRs ------------
 def generar_qr_dinamico(folio):
-    """Genera QR dinámico que apunta a la página de verificación"""
+    """Genera QR dinámico que apunta DIRECTAMENTE al resultado"""
     try:
-        url_verificacion = f"{URL_VERIFICACION_BASE}?folio={folio}"
+        # Cambio: /consulta_folio/1921 en lugar de /consulta_folio?folio=1921
+        url_verificacion = f"{URL_VERIFICACION_BASE}/{folio}"
         
         qr = qrcode.QRCode(
             version=2,
@@ -334,7 +335,7 @@ def generar_qr_dinamico(folio):
     except Exception as e:
         print(f"[ERROR QR DINÁMICO] {e}")
         return None, None
-
+        
 def generar_qr_texto(datos, folio):
     """Genera QR con texto de los datos del vehículo (el que ya tenías)"""
     try:
