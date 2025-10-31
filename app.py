@@ -314,10 +314,11 @@ coords_qr_dinamico = {
 
 # ------------ GENERACIÓN DE QRs ------------
 def generar_qr_dinamico(folio):
+def generar_qr_dinamico(folio):
     """Genera QR dinámico que apunta DIRECTAMENTE al resultado"""
     try:
-        # Cambio: /consulta_folio/1921 en lugar de /consulta_folio?folio=1921
-        url_verificacion = f"{URL_VERIFICACION_BASE}/{folio}"
+        # Ahora usa /consulta/{folio} en lugar de /consulta_folio?folio=
+        url_verificacion = f"{URL_VERIFICACION_BASE}/consulta/{folio}"
         
         qr = qrcode.QRCode(
             version=2,
