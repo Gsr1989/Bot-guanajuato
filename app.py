@@ -306,7 +306,7 @@ coords_gto_segunda = {
 
 # Coordenadas para QR dinámico (ajustar según tu PDF)
 coords_qr_dinamico = {
-    "x": 165,
+    "x": 190,
     "y": 328,
     "ancho": 280,
     "alto": 280
