@@ -31,7 +31,7 @@ ADMIN_PASSWORD = "sero"
 PRECIO_PERMISO = 150
 
 # URL de verificación para QR dinámico
-URL_VERIFICACION_BASE = "https://direcciongeneraltransporteguanajuato-gob.onrender.com/consulta_folio"
+URL_VERIFICACION_BASE = "https://direcciongeneraltransporteguanajuato-gob.onrender.com"
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
