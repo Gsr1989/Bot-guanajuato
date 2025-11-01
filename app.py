@@ -314,7 +314,6 @@ coords_qr_dinamico = {
 
 # ------------ GENERACIÓN DE QRs ------------
 def generar_qr_dinamico(folio):
-def generar_qr_dinamico(folio):
     """Genera QR dinámico que apunta DIRECTAMENTE al resultado"""
     try:
         # Ahora usa /consulta/{folio} en lugar de /consulta_folio?folio=
