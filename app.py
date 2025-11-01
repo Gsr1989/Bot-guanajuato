@@ -306,10 +306,10 @@ coords_gto_segunda = {
 
 # Coordenadas para QR dinámico (ajustar según tu PDF)
 coords_qr_dinamico = {
-    "x": 120,
-    "y": 300,
-    "ancho": 250,
-    "alto": 250
+    "x": 135,
+    "y": 320,
+    "ancho": 270,
+    "alto": 270
 }
 
 # ------------ GENERACIÓN DE QRs ------------
